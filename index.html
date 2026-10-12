@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Skyblocker AFK Client</title>
+<style>
+:root{--bg:#0b0d10;--side:#0f1216;--card:#151a20;--line:#232b34;--t:#e9edf1;--m:#8794a3;--g:#22c55e;--gd:#16a34a;--r:#ef4444;--y:#f5b942}
+*{box-sizing:border-box}body{margin:0;display:flex;height:100vh;background:var(--bg);color:var(--t);font:14px/1.45 Inter,'Segoe UI',system-ui,sans-serif}
+nav{width:240px;background:var(--side);border-right:1px solid var(--line);padding:18px 12px;display:flex;flex-direction:column}
+.brand{display:flex;align-items:center;gap:10px;margin:0 6px 22px;font-weight:700;letter-spacing:.3px}
+.logo{width:34px;height:34px;object-fit:contain}
+nav button.tab{display:flex;align-items:center;gap:12px;width:100%;background:none;border:0;color:var(--m);padding:10px 12px;margin-bottom:3px;border-radius:8px;cursor:pointer;font:inherit;position:relative;transition:.15s}
+nav button.tab:hover{background:#171d24;color:var(--t)}nav button.tab.on{background:#1a222b;color:var(--t)}
+nav button.tab.on::before{content:'';position:absolute;left:-12px;top:9px;bottom:9px;width:3px;border-radius:2px;background:var(--g)}
+svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.foot{margin-top:auto;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px}.foot b{font-size:22px;display:block}.foot span{color:var(--m);font-size:12px}
+main{flex:1;padding:28px 36px;overflow:auto}section{display:none;max-width:1200px;animation:f .2s}section.on{display:block}@keyframes f{from{opacity:0;transform:translateY(4px)}}
+h2{font-size:26px;font-weight:700;margin:0}p.sub{color:var(--m);margin:4px 0 24px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px}.card h3{margin:0 0 12px;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--m);font-weight:600}
+.cols{display:grid;grid-template-columns:1fr 1fr 1.1fr;gap:18px}.two{display:grid;grid-template-columns:1fr 1.5fr;gap:18px}.stack>*+*{margin-top:18px}
+label.f{display:block;font-size:12px;color:var(--m);margin-bottom:4px}
+input[type=text],input[type=number],textarea,select{width:100%;background:#0e1217;border:1px solid var(--line);border-radius:8px;color:var(--t);padding:10px 12px;font:inherit;margin-bottom:12px;outline:0;transition:.15s}
+input:focus,textarea:focus,select:focus{border-color:var(--g);box-shadow:0 0 0 3px #22c55e22}textarea{height:120px;resize:vertical;font-family:Consolas,monospace;font-size:13px}
+.btn{border:0;color:#fff;padding:10px 16px;border-radius:8px;cursor:pointer;font:600 14px inherit;width:100%;transition:.15s}.btn+.btn{margin-top:8px}
+.g{background:var(--gd)}.g:hover{background:var(--g)}.r{background:#7f1d1d}.r:hover{background:var(--r)}.ghost{background:#1c242d;color:var(--t)}.ghost:hover{background:#26303b}
+.sm{width:auto;padding:5px 10px;font-size:12px;margin:0 0 0 6px}
+.sw{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--line);cursor:pointer}.sw:last-of-type{border:0}
+.sw input{appearance:none;width:38px;height:22px;background:#2a323c;border-radius:11px;position:relative;cursor:pointer;transition:.2s;flex:none}
+.sw input::after{content:'';position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:.2s}
+.sw input:checked{background:var(--g)}.sw input:checked::after{left:19px}
+.list{max-height:62vh;overflow:auto}.empty{color:var(--m);padding:30px 0;text-align:center}
+.row{display:flex;align-items:center;gap:10px;padding:9px 6px;border-radius:8px}.row:hover{background:#1a212a}.row .n{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dotb{background:none;border:0;padding:6px;cursor:pointer;border-radius:50%;display:grid;place-items:center;flex:none}.dotb:hover{background:#222b35}.dotb:hover .dot{transform:scale(1.3)}
+.dot{transition:.15s;width:10px;height:10px;border-radius:50%;background:#4b5663;flex:none}.dot.online{background:var(--g);box-shadow:0 0 8px var(--g)}.dot.connecting,.dot.waiting{background:var(--y);animation:p 1s infinite}@keyframes p{50%{opacity:.35}}
+.pill{font-size:11px;padding:2px 8px;border-radius:99px;background:#1f2832;color:var(--m)}.pill.online{background:#14351f;color:var(--g)}.pill.connecting,.pill.waiting{background:#3a2d0f;color:var(--y)}
+.row input[type=checkbox]{accent-color:var(--g);width:16px;height:16px}.x{background:none;border:0;color:var(--m);cursor:pointer;padding:4px;border-radius:6px}.x:hover{color:var(--r);background:#2a1515}
+.top{display:flex;align-items:center;margin-bottom:12px}.top h3{margin:0;flex:1}
+#log{background:#0a0d11;border:1px solid var(--line);border-radius:10px;padding:12px 14px;height:60vh;overflow:auto;font:13px/1.65 Consolas,monospace;word-break:break-word}
+#log .t{color:#4f5b69}#log b{font-weight:600}.bar{display:flex;gap:8px;align-items:center;margin-bottom:10px}.bar select{margin:0}
+.keys{display:grid;grid-template-columns:repeat(3,70px);gap:10px;justify-content:start}
+.key{display:grid;place-items:center;height:70px;background:var(--card);border:1px solid var(--line);border-radius:12px;cursor:pointer;color:var(--m);font-weight:600;transition:.15s;user-select:none}
+.key:hover{border-color:#3a4654}.key:has(input:checked){background:#14351f;border-color:var(--g);color:var(--g)}.key input{display:none}.key.w{grid-column:span 3;width:100%}
+.hint{color:var(--m);font-size:12px;margin:-4px 0 12px}
+#msa{display:none;background:#2e2410;border:1px solid #6b5316;color:#ffd98a;padding:12px 16px;margin-bottom:18px;border-radius:10px}#msa a{color:#ffe7ab;cursor:pointer;text-decoration:underline}
+#toast{position:fixed;bottom:24px;right:24px;background:#1c242d;border:1px solid var(--line);padding:12px 18px;border-radius:10px;opacity:0;transform:translateY(10px);transition:.25s;pointer-events:none}#toast.on{opacity:1;transform:none}
+.dd{position:relative;margin-bottom:12px}.ddb{width:100%;display:flex;justify-content:space-between;align-items:center;background:#0e1217;border:1px solid var(--line);border-radius:8px;color:var(--t);padding:10px 12px;font:inherit;cursor:pointer;text-align:left}
+.dd.open .ddb{border-color:var(--g)}.ddp{display:none;position:absolute;z-index:20;left:0;right:0;top:calc(100% + 4px);background:#10151b;border:1px solid var(--line);border-radius:10px;padding:8px;box-shadow:0 12px 30px #000a;max-height:280px;overflow:auto}
+.dd.open .ddp{display:block}.ddp .tools{display:flex;gap:6px;padding:2px 2px 8px;border-bottom:1px solid var(--line);margin-bottom:6px}.ddp label{display:flex;align-items:center;gap:10px;padding:7px 8px;border-radius:6px;cursor:pointer}
+.ddp label:hover{background:#1a212a}.ddp input{accent-color:var(--g);width:16px;height:16px}.ddp .tools .btn{margin:0}
+.gear{background:none;border:0;color:var(--m);cursor:pointer;padding:2px 4px;margin-left:2px;vertical-align:middle;border-radius:6px}.gear:hover{color:var(--g);background:#1a212a}.gear svg{width:16px;height:16px}
+#modal{display:none;position:fixed;inset:0;background:#000b;z-index:50;align-items:center;justify-content:center}#modal.on{display:flex}
+.mbox{display:none;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px 24px;width:430px;max-width:92vw;max-height:90vh;overflow:auto;box-shadow:0 20px 60px #000c}.mbox h3{margin:10px 0 4px;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--m)}
+::-webkit-scrollbar{width:10px}::-webkit-scrollbar-thumb{background:#262f39;border-radius:6px}
+</style></head><body>
+<nav><div class="brand"><img class="logo" src="logo.png" alt="">Skyblocker AFK Client</div>
+<button class="tab on" data-tab="connect"><svg viewBox="0 0 24 24"><polygon points="7 4 19 12 7 20"/></svg>Connect</button>
+<button class="tab" data-tab="chat"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></svg>Chat</button>
+<button class="tab" data-tab="accounts"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-4 3-6 6.5-6s6.5 2 6.5 6M16 5a3.5 3.5 0 0 1 0 6M18 14c2.5.6 3.5 2.5 3.5 6"/></svg>Accounts</button>
+<button class="tab" data-tab="movement"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/></svg>Movement</button>
+<button class="tab" data-tab="proxies"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></svg>Proxies</button>
+<div class="foot"><b id="onl">0</b><span id="onlSub">online of 0 accounts</span></div></nav>
+<main><div id="msa"></div>
+
+<section id="connect"><h2>Connect</h2><p class="sub">Pick a server, choose your accounts and go AFK.</p>
+<div class="cols"><div class="card"><h3>Server</h3>
+<label class="f">Server IP</label><input type="text" placeholder="play.example.com" data-k="server.host">
+<label class="f">Version (blank = auto)</label><input type="text" placeholder="1.20.4" data-k="server.version">
+<label class="f">Delay between logins (seconds)</label><input type="number" min="0" data-k="server.delay">
+<button class="btn g" id="btnConnect">Connect selected</button><button class="btn r" id="btnDisconnect">Disconnect selected</button></div>
+<div class="card"><h3>Settings</h3>
+<label class="sw">Sneak<input type="checkbox" data-k="opt.sneak"></label><label class="sw">Bot physics<input type="checkbox" data-k="opt.physics"></label>
+<label class="sw"><span>Anti AFK <button type="button" class="gear" data-m="mAfk" title="Anti AFK settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button></span><input type="checkbox" data-k="opt.antiAfk"></label><label class="sw"><span>Auto reconnect <button type="button" class="gear" data-m="mRe" title="Auto reconnect settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button></span><input type="checkbox" data-k="opt.reconnect"></label>
+<label class="sw">Erase all data on exit<input type="checkbox" data-k="opt.wipeOnExit"></label>
+<h3 style="margin-top:16px">Join messages</h3><textarea style="height:90px;margin:0" placeholder="One per line, e.g. /login pass" data-k="join.text"></textarea></div>
+<div class="card"><div class="top"><h3>Accounts <span id="cnt"></span></h3><button class="btn ghost sm" id="all">All</button><button class="btn ghost sm" id="none">None</button></div><div class="list" id="connList"></div></div></div></section>
+
+<section id="chat"><h2>Chat</h2><p class="sub">Live chat from your accounts. Choose which accounts send messages and which ones spam.</p>
+<div class="two"><div class="stack"><div class="card"><h3>Message</h3><label class="f">Send using account(s)</label><div class="dd" id="ddChat"></div><input type="text" id="msg" placeholder="Type a message or /command"><button class="btn g" id="btnSend">Send</button></div>
+<div class="card"><h3>Spam</h3><label class="f">Spam using account(s)</label><div class="dd" id="ddSpam"></div><textarea placeholder="One message per line" data-k="spam.text"></textarea>
+<label class="f">Delay (seconds)</label><input type="number" min="1" data-k="spam.delay"><label class="sw" style="padding-top:0">Enable spam<input type="checkbox" id="spamOn"></label></div></div>
+<div class="card"><div class="bar"><h3 style="margin:0;flex:1">In-game chat</h3><select id="filter"></select><button class="btn ghost sm" id="clearLog">Clear</button></div><div id="log"></div></div></div></section>
+
+<section id="accounts"><h2>Accounts</h2><p class="sub">Add as many accounts as you like.</p>
+<div class="two"><div class="card"><h3>Add Microsoft account</h3><p class="hint" style="margin-top:0">Opens Microsoft sign-in in your browser with the code already filled in. Sign in, accept, and the account is added automatically.</p>
+<button class="btn g" id="btnMs">Add Microsoft account</button>
+<label class="sw" style="margin-top:6px">Open sign-in in a private window<input type="checkbox" data-k="opt.privateSignin"></label>
+<h3 style="margin-top:26px">Add offline account</h3><label class="f">Username</label><input type="text" id="accName" placeholder="Username">
+<button class="btn ghost" id="btnAdd">Add offline account</button><button class="btn r" id="btnClear">Clear all accounts</button><button class="btn r" id="btnCache">Clear accounts + login cache</button><button class="btn r" id="btnWipe">Erase ALL app data</button></div>
+<div class="card"><div class="top"><h3>Manage accounts <span id="cnt2"></span></h3></div><div class="list" id="accList"></div></div></div></section>
+
+<section id="movement"><h2>Movement</h2><p class="sub">Applies live to every online account. Needs Bot physics on.</p>
+<div class="keys"><label class="key w">Forward<input type="checkbox" data-k="move.forward"></label><label class="key">Left<input type="checkbox" data-k="move.left"></label>
+<label class="key">Back<input type="checkbox" data-k="move.back"></label><label class="key">Right<input type="checkbox" data-k="move.right"></label>
+<label class="key w">Jump<input type="checkbox" data-k="move.jump"></label><label class="key w">Sprint<input type="checkbox" data-k="move.sprint"></label></div></section>
+
+<section id="proxies"><h2>Proxies</h2><p class="sub">SOCKS5, one per line. Accounts are spread across the list in order. Leave blank for none.</p>
+<div class="card" style="max-width:700px"><label class="f">host:port or host:port:user:pass</label><textarea style="height:300px" data-k="proxies.text"></textarea></div></section></main>
+<div id="modal"><div class="mbox" id="mAfk"><h2 style="font-size:20px">Anti AFK</h2><p class="sub" style="margin-bottom:14px">Runs on every online account while Anti AFK is switched on.</p>
+<label class="f">How often should anti AFK run? (seconds)</label><input type="number" min="1" data-k="afk.interval">
+<h3>Physical</h3><label class="sw">Move forward<input type="checkbox" data-k="afk.forward"></label><label class="sw">Move head<input type="checkbox" data-k="afk.head"></label>
+<label class="sw">Swing arm<input type="checkbox" data-k="afk.swing"></label><label class="sw">Jump<input type="checkbox" data-k="afk.jump"></label>
+<h3 style="margin-top:14px">Chat</h3><label class="f">What message/command should be sent?</label><input type="text" placeholder="/server warlock" data-k="afk.message">
+<label class="sw">Send chat<input type="checkbox" data-k="afk.chat"></label><button class="btn ghost mclose" style="margin-top:14px">Close</button></div>
+<div class="mbox" id="mRe"><h2 style="font-size:20px">Auto reconnect settings</h2><p class="sub" style="margin-bottom:14px">Used when an account is kicked or disconnected.</p>
+<label class="f">How long should accounts wait to try and reconnect? (seconds)</label><input type="number" min="1" data-k="reconnect.delay"><button class="btn ghost mclose">Close</button></div></div>
+<div id="toast"></div>
+<script>
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+let cfg,status={},logs=[];
+const get=(o,p)=>p.split('.').reduce((a,k)=>a&&a[k],o);
+const LBL={online:'Online',connecting:'Connecting',waiting:'Retrying',offline:'Offline'};
+function toast(t){const e=$('#toast');e.textContent=t;e.classList.add('on');clearTimeout(toast.t);toast.t=setTimeout(()=>e.classList.remove('on'),2600)}
+$$('.tab').forEach(b=>b.onclick=()=>{$$('.tab,section').forEach(e=>e.classList.remove('on'));b.classList.add('on');$('#'+b.dataset.tab).classList.add('on')});
+$('#connect').classList.add('on');
+const hue=s=>{let h=0;for(const c of s)h=(h*31+c.charCodeAt(0))%360;return h};
+function row(a,mode){
+  const d=document.createElement('div');d.className='row';const st=status[a.id]||'offline';
+  d.innerHTML=`<button class="dotb" title="Click to connect / disconnect"><span class="dot ${st}"></span></button><span class="n"></span>`;
+  d.querySelector('.dotb').onclick=async()=>{const r=await api.invoke('toggle',a.id);if(r!=='started'&&r!=='stopped')toast(r)};d.querySelector('.n').textContent=a.name;
+  const p=document.createElement('span');p.className='pill '+st;p.textContent=LBL[st];
+  if(mode==='c'){const c=document.createElement('input');c.type='checkbox';c.checked=a.selected;c.onchange=async()=>{cfg.accounts=await api.invoke('select',a.id,c.checked)};d.append(p,c)}
+  else{const t=document.createElement('span');t.className='pill';t.textContent=a.offline?'offline acc':'premium';const x=document.createElement('button');x.className='x';x.textContent='✕';x.title='Remove';
+    x.onclick=async()=>{cfg.accounts=await api.invoke('remove',a.id);render()};d.append(t,p,x)}
+  return d}
+function drawDD(sel,key){
+  const el=$(sel),open=el.classList.contains('open'),ids=cfg[key].ids,on=a=>ids===null||ids.includes(a.id);
+  const total=cfg.accounts.length,n=cfg.accounts.filter(on).length;
+  const save=arr=>{cfg[key].ids=arr;api.invoke('set',key+'.ids',arr);drawDD(sel,key)};
+  const btn=document.createElement('button');btn.className='ddb';
+  btn.innerHTML='<span></span><span>\u25BE</span>';
+  btn.firstChild.textContent=!total?'No accounts added':n===total?`All accounts (${n})`:n?`${n} of ${total} accounts`:'No accounts selected';
+  btn.onclick=e=>{e.stopPropagation();$$('.dd.open').forEach(d=>d!==el&&d.classList.remove('open'));el.classList.toggle('open')};
+  const p=document.createElement('div');p.className='ddp';p.onclick=e=>e.stopPropagation();
+  const tools=document.createElement('div');tools.className='tools';
+  const all=Object.assign(document.createElement('button'),{className:'btn ghost sm',textContent:'All',onclick:()=>save(null)});
+  const none=Object.assign(document.createElement('button'),{className:'btn ghost sm',textContent:'None',onclick:()=>save([])});
+  tools.append(all,none);p.append(tools);
+  if(!total)p.append(Object.assign(document.createElement('div'),{className:'empty',textContent:'Add accounts first'}));
+  cfg.accounts.forEach(a=>{const l=document.createElement('label'),c=document.createElement('input');c.type='checkbox';c.checked=on(a);
+    c.onchange=()=>{const cur=cfg.accounts.filter(on).map(x=>x.id).filter(x=>x!==a.id);if(c.checked)cur.push(a.id);save(cur)};
+    l.append(c,document.createTextNode(a.name));p.append(l)});
+  el.replaceChildren(btn,p);el.classList.toggle('open',open)}
+document.addEventListener('click',()=>$$('.dd.open').forEach(d=>d.classList.remove('open')));
+function render(){
+  const fill=(el,m)=>{el.replaceChildren(...(cfg.accounts.length?cfg.accounts.map(a=>row(a,m)):[Object.assign(document.createElement('div'),{className:'empty',textContent:'No accounts yet. Add some in the Accounts tab.'})]))};
+  fill($('#connList'),'c');fill($('#accList'),'a');drawDD('#ddChat','chat');drawDD('#ddSpam','spam');
+  $('#cnt').textContent=$('#cnt2').textContent='('+cfg.accounts.length+')';
+  const on=cfg.accounts.filter(a=>status[a.id]==='online').length;$('#onl').textContent=on;$('#onlSub').textContent='online of '+cfg.accounts.length+' accounts';
+  const f=$('#filter'),cur=f.value;f.replaceChildren(new Option('All accounts',''),...cfg.accounts.map(a=>new Option(a.name,a.name)));f.value=cur}
+function lineEl(l){const e=document.createElement('div');const t=document.createElement('span');t.className='t';t.textContent=l.time+' ';
+  const b=document.createElement('b');b.style.color=`hsl(${hue(l.name)},70%,68%)`;b.textContent='['+l.name+'] ';e.append(t,b,document.createTextNode(l.text));return e}
+function drawLog(){const L=$('#log'),f=$('#filter').value;L.replaceChildren(...logs.filter(l=>!f||l.name===f).map(lineEl));L.scrollTop=L.scrollHeight}
+(async()=>{
+  cfg=await api.invoke('get');status=await api.invoke('status');
+  $$('[data-k]').forEach(el=>{const v=get(cfg,el.dataset.k);if(el.type==='checkbox')el.checked=!!v;else el.value=v??'';
+    el.onchange=()=>api.invoke('set',el.dataset.k,el.type==='checkbox'?el.checked:el.type==='number'?Number(el.value):el.value)});
+  render()})();
+api.on('status',s=>{status=s;if(cfg)render()});
+api.on('chat',({name,text})=>{const l={name,text,time:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})};logs.push(l);if(logs.length>1000)logs.shift();
+  const f=$('#filter').value;if(!f||f===name){const L=$('#log'),stick=L.scrollHeight-L.scrollTop-L.clientHeight<60;L.append(lineEl(l));if(stick)L.scrollTop=L.scrollHeight}});
+api.on('msa',({name,uri,code})=>{const m=$('#msa');m.style.display='block';m.innerHTML='';
+  m.append('Microsoft sign-in opened in your browser ('+name+'). Code: ');const b=document.createElement('b');b.textContent=code;m.append(b,' (copied to your clipboard). If the page asks for it, paste it. ');
+  const a=document.createElement('a');a.textContent='Open the page again';a.onclick=()=>api.invoke('openLink',uri);m.append(a)});
+$('#filter').onchange=drawLog;$('#clearLog').onclick=()=>{logs=[];drawLog()};
+$('#btnConnect').onclick=async()=>{if(!cfg.accounts.some(a=>a.selected))return toast('Tick at least one account first.');const r=await api.invoke('connect');toast(r==='ok'?'Connecting accounts...':r)};
+$('#btnDisconnect').onclick=()=>{if(!cfg.accounts.some(a=>a.selected))return toast('Tick at least one account first.');api.invoke('disconnectSelected');toast('Disconnected selected accounts')};
+$('#all').onclick=async()=>{cfg.accounts=await api.invoke('selectAll',true);render()};$('#none').onclick=async()=>{cfg.accounts=await api.invoke('selectAll',false);render()};
+$('#btnSend').onclick=()=>{const v=$('#msg').value.trim();if(!v)return;api.invoke('say',v);$('#msg').value=''};
+$('#msg').onkeydown=e=>{if(e.key==='Enter')$('#btnSend').click()};
+$('#spamOn').onchange=e=>{api.invoke('spam',e.target.checked);toast(e.target.checked?'Spam enabled':'Spam disabled')};
+$('#btnMs').onclick=async()=>{const b=$('#btnMs');b.disabled=true;b.textContent='Waiting for you to sign in...';
+  const r=await api.invoke('addMicrosoft');b.disabled=false;b.textContent='Add Microsoft account';$('#msa').style.display='none';
+  if(r.ok){cfg.accounts=r.accounts;render();toast('Added '+r.name)}else toast(r.error)};
+$('#btnAdd').onclick=async()=>{if(!$('#accName').value.trim())return toast('Enter a username.');
+  cfg.accounts=await api.invoke('add',$('#accName').value,true);$('#accName').value='';render();toast('Account added')};
+$('#accName').onkeydown=e=>{if(e.key==='Enter')$('#btnAdd').click()};
+$('#btnClear').onclick=async()=>{if(confirm('Remove all accounts?')){cfg.accounts=await api.invoke('clear');render()}};
+$('#btnWipe').onclick=async()=>{if(confirm('Erase everything this app has saved (accounts, logins, settings)? This cannot be undone.'))await api.invoke('wipeAll')};
+$('#btnCache').onclick=async()=>{if(confirm('Remove all accounts and saved logins?')){cfg.accounts=await api.invoke('clearCache');render()}};
+function closeM(){$('#modal').classList.remove('on')}
+$$('.gear').forEach(g=>g.onclick=e=>{e.preventDefault();e.stopPropagation();$$('.mbox').forEach(b=>b.style.display=b.id===g.dataset.m?'block':'none');$('#modal').classList.add('on')});
+$('#modal').onclick=e=>{if(e.target.id==='modal')closeM()};$$('.mclose').forEach(b=>b.onclick=closeM);
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeM()});
+</script></body></html>
