@@ -47,6 +47,8 @@ input:focus,textarea:focus,select:focus{border-color:var(--g);box-shadow:0 0 0 3
 .gear{background:none;border:0;color:var(--m);cursor:pointer;padding:2px 4px;margin-left:2px;vertical-align:middle;border-radius:6px}.gear:hover{color:var(--g);background:#1a212a}.gear svg{width:16px;height:16px}
 #modal{display:none;position:fixed;inset:0;background:#000b;z-index:50;align-items:center;justify-content:center}#modal.on{display:flex}
 .mbox{display:none;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px 24px;width:430px;max-width:92vw;max-height:90vh;overflow:auto;box-shadow:0 20px 60px #000c}.mbox h3{margin:10px 0 4px;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--m)}
+#upd{display:none;align-items:center;gap:12px;background:#0f2a1a;border:1px solid #1f6b3a;color:#bff5d2;padding:10px 16px;margin-bottom:18px;border-radius:10px}#upd span{flex:1}#upd .btn{width:auto;margin:0}
+.ver{color:#4f5b69;font-size:11px;margin:8px 6px 0;text-align:center}
 ::-webkit-scrollbar{width:10px}::-webkit-scrollbar-thumb{background:#262f39;border-radius:6px}
 </style></head><body>
 <nav><div class="brand"><img class="logo" src="logo.png" alt="">Skyblocker AFK Client</div>
@@ -55,8 +57,8 @@ input:focus,textarea:focus,select:focus{border-color:var(--g);box-shadow:0 0 0 3
 <button class="tab" data-tab="accounts"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-4 3-6 6.5-6s6.5 2 6.5 6M16 5a3.5 3.5 0 0 1 0 6M18 14c2.5.6 3.5 2.5 3.5 6"/></svg>Accounts</button>
 <button class="tab" data-tab="movement"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/></svg>Movement</button>
 <button class="tab" data-tab="proxies"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></svg>Proxies</button>
-<div class="foot"><b id="onl">0</b><span id="onlSub">online of 0 accounts</span></div></nav>
-<main><div id="msa"></div>
+<div class="foot"><b id="onl">0</b><span id="onlSub">online of 0 accounts</span></div><div class="ver" id="ver"></div></nav>
+<main><div id="upd"><span id="updTxt"></span><button class="btn g" id="updBtn">Restart &amp; update</button></div><div id="msa"></div>
 
 <section id="connect"><h2>Connect</h2><p class="sub">Pick a server, choose your accounts and go AFK.</p>
 <div class="cols"><div class="card"><h3>Server</h3>
@@ -152,6 +154,12 @@ function drawLog(){const L=$('#log'),f=$('#filter').value;L.replaceChildren(...l
   $$('[data-k]').forEach(el=>{const v=get(cfg,el.dataset.k);if(el.type==='checkbox')el.checked=!!v;else el.value=v??'';
     el.onchange=()=>api.invoke('set',el.dataset.k,el.type==='checkbox'?el.checked:el.type==='number'?Number(el.value):el.value)});
   render()})();
+const showUpd=u=>{const b=$('#upd');if(!u||(u.status!=='ready'&&u.status!=='downloading')){b.style.display='none';return}
+  b.style.display='flex';$('#updBtn').style.display=u.status==='ready'?'':'none';
+  $('#updTxt').textContent=u.status==='ready'?'Update v'+u.version+' is ready. It installs automatically next time you close the app, or restart now.':'Downloading update v'+u.version+'... '+(u.percent||0)+'%'};
+api.on('update',showUpd);api.invoke('updateState').then(showUpd);
+api.invoke('version').then(v=>$('#ver').textContent='v'+v);
+document.addEventListener('click',e=>{if(e.target.id==='updBtn'){e.target.textContent='Restarting...';api.invoke('installUpdate')}});
 api.on('status',s=>{status=s;if(cfg)render()});
 api.on('chat',({name,text})=>{const l={name,text,time:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})};logs.push(l);if(logs.length>1000)logs.shift();
   const f=$('#filter').value;if(!f||f===name){const L=$('#log'),stick=L.scrollHeight-L.scrollTop-L.clientHeight<60;L.append(lineEl(l));if(stick)L.scrollTop=L.scrollHeight}});

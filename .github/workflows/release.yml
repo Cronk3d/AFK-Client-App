@@ -1,0 +1,21 @@
+# Builds the Windows app and publishes it as a GitHub Release whenever you push a version tag (e.g. v1.1.0).
+# Installed copies of the app see the new release and update themselves on next restart.
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

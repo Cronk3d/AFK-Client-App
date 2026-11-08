@@ -5,8 +5,24 @@ const mineflayer = require('mineflayer');
 const { SocksClient } = require('socks');
 const { Authflow, Titles } = require('prismarine-auth');
 
+const log = require('electron-log/main');
+const { autoUpdater } = require('electron-updater');
+
 // Keep saved accounts/settings in one fixed folder, whether run from npm or the installed app
 app.setPath('userData', path.join(app.getPath('appData'), 'my-afk-client'));
+
+// Log file: %APPDATA%\my-afk-client\logs\main.log
+log.initialize();
+log.transports.file.resolvePathFn = () => path.join(app.getPath('userData'), 'logs', 'main.log');
+log.transports.file.maxSize = 5 * 1024 * 1024;
+
+// Only one copy of the app may run, otherwise two copies fight over the same config and sign-ins
+if (!app.requestSingleInstanceLock()) { app.quit(); process.exit(0); }
+app.on('second-instance', () => { if (win && !win.isDestroyed()) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); } });
+
+// A stray error from one bot (bad packet, proxy drop, etc.) must never take down the whole app
+process.on('uncaughtException', e => log.error('Uncaught exception:', e));
+process.on('unhandledRejection', e => log.error('Unhandled rejection:', e));
 
 const defaults = {
   server: { host: '', version: '', delay: 5 },
@@ -28,13 +44,34 @@ const send = (ch, d) => win && !win.isDestroyed() && win.webContents.send(ch, d)
 const wipeAuth = () => fs.rmSync(path.join(app.getPath('userData'), 'auth'), { recursive: true, force: true });
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+const readJson = f => JSON.parse(fs.readFileSync(f, 'utf8'));
 function load() {
   let saved = {};
-  try { saved = JSON.parse(fs.readFileSync(cfgFile(), 'utf8')); } catch {}
+  if (fs.existsSync(cfgFile())) {
+    try { saved = readJson(cfgFile()); }
+    catch (e) {
+      // Config got corrupted (e.g. PC lost power mid-save) - fall back to the last good copy instead of losing every account
+      log.error('config.json unreadable, trying backup:', e.message);
+      try { saved = readJson(cfgFile() + '.bak'); } catch { saved = {}; }
+      try { fs.copyFileSync(cfgFile(), cfgFile() + '.corrupt'); } catch {}
+    }
+  }
   cfg = {};
-  for (const k in defaults) cfg[k] = Array.isArray(defaults[k]) ? (saved[k] || []) : { ...defaults[k], ...(saved[k] || {}) };
+  for (const k in defaults) {
+    const v = saved[k];
+    cfg[k] = Array.isArray(defaults[k]) ? (Array.isArray(v) ? v : []) : { ...defaults[k], ...(v && typeof v === 'object' ? v : {}) };
+  }
 }
-const save = () => { fs.mkdirSync(path.dirname(cfgFile()), { recursive: true }); fs.writeFileSync(cfgFile(), JSON.stringify(cfg, null, 2)); };
+// Write to a temp file then swap it in, so a crash mid-save can never leave a half-written config
+function save() {
+  try {
+    const f = cfgFile(), tmp = f + '.tmp';
+    fs.mkdirSync(path.dirname(f), { recursive: true });
+    fs.writeFileSync(tmp, JSON.stringify(cfg, null, 2));
+    if (fs.existsSync(f)) { try { fs.copyFileSync(f, f + '.bak'); } catch {} }
+    fs.renameSync(tmp, f);
+  } catch (e) { log.error('Could not save config:', e); }
+}
 const sess = id => { if (!sessions.has(id)) sessions.set(id, { bot: null, state: 'offline', wanted: false, retries: 0, timers: [], idx: 0 }); return sessions.get(id); };
 const pushStatus = () => send('status', Object.fromEntries(cfg.accounts.map(a => [a.id, sess(a.id).state])));
 const chatLine = (name, text) => send('chat', { name, text });
@@ -79,7 +116,7 @@ function connectAcc(acc) {
   if (s.bot || !s.wanted) return;
   const [host, port] = cfg.server.host.trim().split(':');
   const portNum = parseInt(port) || 25565;
-  s.state = 'connecting'; pushStatus();
+  s.state = 'connecting'; s.signin = false; pushStatus();
   chatLine(acc.name, 'Connecting...');
   const opts = {
     host, port: portNum, username: acc.key || acc.name, auth: acc.offline ? 'offline' : 'microsoft',
@@ -88,7 +125,7 @@ function connectAcc(acc) {
   if (!acc.offline) {
     opts.profilesFolder = authDir(acc.id);
     fs.mkdirSync(opts.profilesFolder, { recursive: true });
-    opts.onMsaCode = d => openCode(d, acc.name);
+    opts.onMsaCode = d => { s.signin = true; openCode(d, acc.name); };
   }
   const px = proxyFor(s.idx);
   if (px) {
@@ -99,34 +136,46 @@ function connectAcc(acc) {
     };
   }
   let bot;
-  try { bot = mineflayer.createBot(opts); } catch (e) { chatLine(acc.name, 'Error: ' + e.message); s.state = 'offline'; return retry(acc); }
+  try { bot = mineflayer.createBot(opts); } catch (e) { chatLine(acc.name, 'Error: ' + e.message); s.state = 'offline'; pushStatus(); return retry(acc); }
   s.bot = bot;
+  let ended = false;
+  // Called once per bot no matter how it dies (end / error / timeout), so we never schedule two reconnects
+  const finish = why => {
+    if (ended) return; ended = true;
+    if (s.bot !== bot) return; // this bot was already stopped or replaced - ignore its late events
+    clear(s); s.bot = null; s.state = 'offline'; pushStatus();
+    chatLine(acc.name, why || 'Disconnected.');
+    try { bot.removeAllListeners('message'); bot.end(); } catch {}
+    retry(acc);
+  };
+  // If the server/proxy never answers, mineflayer can sit at "connecting" forever - give up after 60s and retry
+  s.timers.push(setTimeout(() => { if (s.bot === bot && s.state === 'connecting' && !s.signin) finish('Connection timed out.'); }, 60000));
   bot.once('spawn', async () => {
     s.state = 'online'; s.retries = 0; pushStatus();
     chatLine(acc.name, 'Spawned.');
-    bot.physicsEnabled = !!cfg.opt.physics;
-    applyControls(bot);
+    try { bot.physicsEnabled = !!cfg.opt.physics; applyControls(bot); } catch {}
     const joins = cfg.join.text.split('\n').map(l => l.trim()).filter(Boolean);
-    for (const m of joins) { await sleep(1500); if (s.bot === bot) bot.chat(m); }
-    if (cfg.opt.antiAfk) antiAfk(s, bot);
+    for (const m of joins) { await sleep(1500); if (s.bot === bot) safeChat(bot, m); }
+    if (cfg.opt.antiAfk && s.bot === bot) antiAfk(s, bot);
   });
-  bot.on('message', m => chatLine(acc.name, m.toString()));
+  bot.on('message', m => { try { chatLine(acc.name, m.toString()); } catch {} });
   bot.on('kicked', r => chatLine(acc.name, 'Kicked: ' + (typeof r === 'string' ? r : JSON.stringify(r))));
-  bot.on('error', e => chatLine(acc.name, 'Error: ' + e.message));
-  bot.on('end', () => {
-    clear(s); s.bot = null; s.state = 'offline'; pushStatus();
-    chatLine(acc.name, 'Disconnected.');
-    retry(acc);
-  });
+  bot.on('error', e => { chatLine(acc.name, 'Error: ' + (e && e.message)); log.warn(acc.name, 'bot error:', e && e.message); if (s.state === 'connecting') finish('Disconnected.'); });
+  bot.on('end', () => finish());
 }
+
+const safeChat = (bot, text) => { try { bot.chat(text); } catch (e) { log.warn('chat failed:', e.message); } };
 
 function retry(acc) {
   const s = sess(acc.id);
   if (!s.wanted || !cfg.opt.reconnect) { s.wanted = false; return; }
+  if (!cfg.accounts.some(a => a.id === acc.id)) { s.wanted = false; return; } // account was removed
   s.retries++;
-  const delay = Math.max(1, Number(cfg.reconnect.delay) || 5) * 1000;
+  // Back off when a server keeps refusing us: base, 2x, 4x... capped at 5 minutes, plus a little jitter
+  const base = Math.max(1, Number(cfg.reconnect.delay) || 5) * 1000;
+  const delay = Math.min(base * 2 ** Math.min(s.retries - 1, 6), Math.max(base, 300000)) + Math.random() * 1000;
   s.state = 'waiting'; pushStatus();
-  chatLine(acc.name, `Reconnecting in ${Math.round(delay / 1000)}s...`);
+  chatLine(acc.name, `Reconnecting in ${Math.round(delay / 1000)}s...` + (s.retries > 1 ? ` (attempt ${s.retries})` : ''));
   s.timers.push(setTimeout(() => connectAcc(acc), delay));
 }
 
@@ -163,16 +212,47 @@ function createWindow() {
     webPreferences: { preload: path.join(__dirname, 'preload.js') },
   });
   win.loadFile('index.html');
+  // If the UI ever crashes, reload it - the bots keep running in the background either way
+  win.webContents.on('render-process-gone', (_, d) => { log.error('Renderer gone:', d.reason); if (d.reason !== 'clean-exit') setTimeout(() => win && !win.isDestroyed() && win.reload(), 1000); });
+  win.on('unresponsive', () => log.warn('Window unresponsive'));
+}
+
+// ---------- Auto updater ----------
+// Checks GitHub Releases. New versions download in the background and install the next time the app is closed/restarted.
+let updateState = { status: 'idle' };
+const setUpdate = st => { updateState = st; send('update', st); };
+function setupUpdater() {
+  if (!app.isPackaged || process.env.PORTABLE_EXECUTABLE_DIR) return; // only the installed (Setup.exe) version can self-update
+  autoUpdater.logger = log;
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.on('checking-for-update', () => { if (updateState.status !== 'ready') setUpdate({ status: 'checking' }); });
+  autoUpdater.on('update-available', i => setUpdate({ status: 'downloading', version: i.version, percent: 0 }));
+  autoUpdater.on('update-not-available', () => setUpdate({ status: 'idle' }));
+  autoUpdater.on('download-progress', p => setUpdate({ ...updateState, status: 'downloading', percent: Math.round(p.percent) }));
+  autoUpdater.on('update-downloaded', i => setUpdate({ status: 'ready', version: i.version }));
+  autoUpdater.on('error', e => { log.warn('Updater error:', e && e.message); if (updateState.status !== 'ready') setUpdate({ status: 'idle' }); });
+  const check = () => { if (updateState.status !== 'ready') autoUpdater.checkForUpdates().catch(e => log.warn('Update check failed:', e && e.message)); };
+  setTimeout(check, 5000);
+  setInterval(check, 4 * 60 * 60 * 1000); // and every 4 hours while it's left running
 }
 
 app.whenReady().then(() => {
-  load(); createWindow();
+  load(); createWindow(); setupUpdater();
+
+  ipcMain.handle('version', () => app.getVersion());
+  ipcMain.handle('updateState', () => updateState);
+  ipcMain.handle('installUpdate', () => {
+    if (updateState.status !== 'ready') return;
+    cfg.accounts.forEach(a => stopAcc(a.id));
+    setImmediate(() => autoUpdater.quitAndInstall(true, true)); // silent install, then relaunch
+  });
 
   ipcMain.handle('get', () => cfg);
   ipcMain.handle('status', () => Object.fromEntries(cfg.accounts.map(a => [a.id, sess(a.id).state])));
   ipcMain.handle('set', (_, key, val) => {
-    const parts = key.split('.'); let o = cfg;
-    while (parts.length > 1) o = o[parts.shift()];
+    const parts = String(key).split('.'); let o = cfg;
+    while (parts.length > 1) { const p = parts.shift(); if (!o[p] || typeof o[p] !== 'object') o[p] = {}; o = o[p]; }
     o[parts[0]] = val; save();
     if (key.startsWith('move.') || key === 'opt.sneak') sessions.forEach(s => s.bot && applyControls(s.bot));
     if (key === 'opt.physics') sessions.forEach(s => { if (s.bot) s.bot.physicsEnabled = !!val; });
@@ -242,21 +322,29 @@ app.whenReady().then(() => {
     return 'ok';
   });
   ipcMain.handle('disconnect', () => { cfg.accounts.forEach(a => stopAcc(a.id)); pushStatus(); });
-  ipcMain.handle('say', (_, text) => { if (text) onlineFor(cfg.chat.ids).forEach(a => sess(a.id).bot.chat(text)); });
+  ipcMain.handle('say', (_, text) => { if (text) onlineFor(cfg.chat.ids).forEach(a => safeChat(sess(a.id).bot, text)); });
   ipcMain.handle('spam', (_, on) => {
     clearInterval(spamTimer); spamTimer = null;
     if (!on) return;
+    let running = false;
     const run = async () => {
+      if (running) return; running = true;
+      try {
       const msgs = cfg.spam.text.split('\n').map(l => l.trim()).filter(Boolean);
-      for (const m of msgs) { onlineFor(cfg.spam.ids).forEach(a => sess(a.id).bot.chat(m)); await sleep(1500); }
+      for (const m of msgs) { onlineFor(cfg.spam.ids).forEach(a => safeChat(sess(a.id).bot, m)); await sleep(1500); }
+      } finally { running = false; }
     };
     run(); spamTimer = setInterval(run, Math.max(1, cfg.spam.delay) * 1000);
   });
   ipcMain.handle('openLink', (_, url) => openUrl(url));
 });
+app.on('before-quit', () => {
+  // Disconnect bots cleanly so servers don't see a timeout/ghost player
+  if (cfg) cfg.accounts.forEach(a => { try { stopAcc(a.id); } catch {} });
+  clearInterval(spamTimer);
+});
 app.on('will-quit', () => {
   if (cfg && cfg.opt.wipeOnExit) {
-    cfg.accounts.forEach(a => stopAcc(a.id));
     try { wipeAuth(); fs.rmSync(cfgFile(), { force: true }); } catch {}
   }
 });
