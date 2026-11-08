@@ -11,7 +11,7 @@ Use "Add Microsoft account" on the Accounts tab: your browser opens with the cod
 Run `npm install` then `npm run dist`. The installer and a portable .exe appear in the `dist` folder.
 
 ## Auto updates
-The installed app (Setup.exe) checks GitHub Releases on startup and every 4 hours. New versions download in
+The installed app (Setup.exe) checks the public Cronk3d/AFK-Client-Releases repo on startup and every 4 hours. New versions download in
 the background and install the next time you close the app, or straight away with the "Restart & update" banner.
 (The portable .exe does not auto-update.)
 

@@ -1,6 +1,6 @@
 {
   "name": "my-afk-client",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Skyblocker AFK Client",
   "main": "main.js",
   "scripts": {
@@ -52,6 +52,12 @@
       "artifactName": "Skyblocker-AFK-Client-Portable.exe"
     },
     "publish": [
+      {
+        "provider": "github",
+        "owner": "Cronk3d",
+        "repo": "AFK-Client-Releases",
+        "releaseType": "release"
+      },
       {
         "provider": "github",
         "owner": "Cronk3d",
