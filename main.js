@@ -29,6 +29,7 @@ const defaults = {
   opt: { sneak: false, physics: true, antiAfk: true, reconnect: true, wipeOnExit: false, privateSignin: true },
   afk: { interval: 30, forward: false, head: true, swing: true, jump: true, chat: false, message: '' },
   reconnect: { delay: 5 },
+  warlock: { on: false, command: '/server warlock', delay: 3 },
   join: { text: '' },
   spam: { text: '', delay: 480, ids: null },
   chat: { ids: null },
@@ -158,6 +159,7 @@ function connectAcc(acc) {
     for (const m of joins) { await sleep(1500); if (s.bot === bot) safeChat(bot, m); }
     if (cfg.opt.antiAfk && s.bot === bot) antiAfk(s, bot);
   });
+  s.warlock = warlockMode(acc, s, bot);
   bot.on('message', m => { try { chatLine(acc.name, m.toString()); } catch {} });
   bot.on('kicked', r => chatLine(acc.name, 'Kicked: ' + (typeof r === 'string' ? r : JSON.stringify(r))));
   bot.on('error', e => { chatLine(acc.name, 'Error: ' + (e && e.message)); log.warn(acc.name, 'bot error:', e && e.message); if (s.state === 'connecting') finish('Disconnected.'); });
@@ -166,14 +168,63 @@ function connectAcc(acc) {
 
 const safeChat = (bot, text) => { try { bot.chat(text); } catch (e) { log.warn('chat failed:', e.message); } };
 
+// ---------- Warlock mode ----------
+// Every time an alt lands in the hub (first join, or sent back for any reason) it sends the command ONCE.
+// The proxy moving an alt between servers shows up as a "world change" (login/respawn packet), so:
+//   hub -> we send the command -> next world change = arrived in warlock (don't send again)
+//   in warlock -> unexpected world change = got sent to hub -> send the command once
+// If the command doesn't move the alt (warlock restarting/full), it tries again every 45s until it does.
+function warlockMode(acc, s, bot) {
+  let state = 'hub', sendTimer = null, retryTimer = null, lastChange = 0, died = false, spawned = false;
+  const alive = () => s.bot === bot;
+  const stopTimers = () => { clearTimeout(sendTimer); clearTimeout(retryTimer); sendTimer = retryTimer = null; };
+  const send = () => {
+    stopTimers();
+    if (!alive() || !cfg.warlock.on) return;
+    const cmd = (cfg.warlock.command || '/server warlock').trim();
+    safeChat(bot, cmd);
+    chatLine(acc.name, 'Warlock mode: sent ' + cmd);
+    state = 'expect';
+    retryTimer = setTimeout(() => {
+      if (alive() && state === 'expect') { chatLine(acc.name, 'Warlock mode: still not moved, trying again...'); send(); }
+    }, 45000);
+    s.timers.push(retryTimer);
+  };
+  const queueSend = () => {
+    if (!cfg.warlock.on) return;
+    clearTimeout(sendTimer);
+    sendTimer = setTimeout(send, Math.max(1, Number(cfg.warlock.delay) || 3) * 1000);
+    s.timers.push(sendTimer);
+  };
+  const worldChanged = () => {
+    if (!spawned) return;
+    const now = Date.now();
+    if (now - lastChange < 3000) return; // one server switch can send 2 packets
+    lastChange = now;
+    if (state === 'expect') { stopTimers(); state = 'warlock'; chatLine(acc.name, 'Warlock mode: joined warlock.'); return; }
+    state = 'hub';
+    if (cfg.warlock.on) chatLine(acc.name, 'Warlock mode: sent to hub - rejoining warlock.');
+    queueSend();
+  };
+  bot.once('spawn', () => { spawned = true; lastChange = Date.now(); state = 'hub'; queueSend(); });
+  bot.on('death', () => { died = true; });
+  bot._client.on('login', worldChanged);
+  bot._client.on('respawn', () => { if (died) { died = false; return; } worldChanged(); }); // dying also sends respawn - ignore it
+  bot.on('messagestr', m => {
+    if (state === 'expect' && /already connected/i.test(m)) { stopTimers(); state = 'warlock'; }
+  });
+  // Turning the mode on while alts are already online: send once (harmless "already connected" if they're there)
+  return { enable: () => { if (spawned && alive() && state !== 'expect') { state = 'hub'; queueSend(); } } };
+}
+
 function retry(acc) {
   const s = sess(acc.id);
-  if (!s.wanted || !cfg.opt.reconnect) { s.wanted = false; return; }
+  if (!s.wanted || !(cfg.opt.reconnect || cfg.warlock.on)) { s.wanted = false; return; } // warlock mode always keeps alts online
   if (!cfg.accounts.some(a => a.id === acc.id)) { s.wanted = false; return; } // account was removed
   s.retries++;
-  // Back off when a server keeps refusing us: base, 2x, 4x... capped at 5 minutes, plus a little jitter
+  // Back off when a server keeps refusing us: base, 2x, 4x... capped at 60 seconds, plus a little jitter
   const base = Math.max(1, Number(cfg.reconnect.delay) || 5) * 1000;
-  const delay = Math.min(base * 2 ** Math.min(s.retries - 1, 6), Math.max(base, 300000)) + Math.random() * 1000;
+  const delay = Math.min(base * 2 ** Math.min(s.retries - 1, 6), Math.max(base, 60000)) + Math.random() * 1000;
   s.state = 'waiting'; pushStatus();
   chatLine(acc.name, `Reconnecting in ${Math.round(delay / 1000)}s...` + (s.retries > 1 ? ` (attempt ${s.retries})` : ''));
   s.timers.push(setTimeout(() => connectAcc(acc), delay));
@@ -255,6 +306,7 @@ app.whenReady().then(() => {
     while (parts.length > 1) { const p = parts.shift(); if (!o[p] || typeof o[p] !== 'object') o[p] = {}; o = o[p]; }
     o[parts[0]] = val; save();
     if (key.startsWith('move.') || key === 'opt.sneak') sessions.forEach(s => s.bot && applyControls(s.bot));
+    if (key === 'warlock.on' && val) sessions.forEach(s => s.bot && s.warlock && s.warlock.enable());
     if (key === 'opt.physics') sessions.forEach(s => { if (s.bot) s.bot.physicsEnabled = !!val; });
   });
   ipcMain.handle('addMicrosoft', async () => {
