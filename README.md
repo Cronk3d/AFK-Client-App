@@ -21,3 +21,18 @@ To ship an update:
 3. GitHub Actions builds it and publishes the release. Everyone's app updates itself on next restart.
 
 Logs are in `%APPDATA%\my-afk-client\logs\main.log` if something goes wrong.
+
+## Web version (run 24/7 on a VPS)
+Same app, but the bots run on a server and you control them from any browser or your phone (password protected, HTTPS).
+Alts that were online come back automatically after a restart, crash or reboot.
+
+**Setup (Ubuntu 22.04/24.04 VPS, e.g. Hetzner CX22):**
+1. SSH into the VPS as root and run:
+   `curl -fsSL -o setup.sh https://raw.githubusercontent.com/Cronk3d/AFK-Client-Releases/main/setup.sh && bash setup.sh`
+   (or copy `deploy/setup.sh` over and run `bash setup.sh`)
+2. It prints a key - add it on GitHub under this repo > Settings > Deploy keys (read-only), press Enter.
+3. Pick a password. At the end it prints your link, e.g. `https://1-2-3-4.sslip.io`.
+
+**On the VPS:** `afk-update` (get newest version) · `journalctl -u afk-client -f` (live logs) · `systemctl restart afk-client`
+
+Run it locally instead: `AFK_PASSWORD=yourpassword npm run web` then open http://127.0.0.1:3000

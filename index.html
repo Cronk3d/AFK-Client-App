@@ -49,6 +49,9 @@ input:focus,textarea:focus,select:focus{border-color:var(--g);box-shadow:0 0 0 3
 .mbox{display:none;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px 24px;width:430px;max-width:92vw;max-height:90vh;overflow:auto;box-shadow:0 20px 60px #000c}.mbox h3{margin:10px 0 4px;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--m)}
 #upd{display:none;align-items:center;gap:12px;background:#0f2a1a;border:1px solid #1f6b3a;color:#bff5d2;padding:10px 16px;margin-bottom:18px;border-radius:10px}#upd span{flex:1}#upd .btn{width:auto;margin:0}
 .ver{color:#4f5b69;font-size:11px;margin:8px 6px 0;text-align:center}
+@media (max-width:820px){body{flex-direction:column;height:auto;min-height:100vh}nav{width:auto;flex-direction:row;flex-wrap:wrap;align-items:center;padding:10px;border-right:0;border-bottom:1px solid var(--line);gap:4px}
+.brand{margin:0 8px 0 4px;flex-basis:100%}nav button.tab{width:auto;padding:8px 10px;margin:0}nav button.tab.on::before{display:none}.foot{margin:0 0 0 auto;padding:6px 10px}.foot b{font-size:16px;display:inline;margin-right:6px}.ver{margin:0 4px}
+main{padding:16px}.cols,.two{grid-template-columns:1fr}.list{max-height:none}#log{height:55vh}}
 ::-webkit-scrollbar{width:10px}::-webkit-scrollbar-thumb{background:#262f39;border-radius:6px}
 </style></head><body>
 <nav><div class="brand"><img class="logo" src="logo.png" alt="">Skyblocker AFK Client</div>
@@ -164,17 +167,22 @@ api.on('update',showUpd);api.invoke('updateState').then(showUpd);
 api.invoke('version').then(v=>$('#ver').textContent='v'+v);
 document.addEventListener('click',e=>{if(e.target.id==='updBtn'){e.target.textContent='Restarting...';api.invoke('installUpdate')}});
 api.on('status',s=>{status=s;if(cfg)render()});
-api.on('chat',({name,text})=>{const l={name,text,time:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})};logs.push(l);if(logs.length>1000)logs.shift();
+api.on('chat',({name,text,at})=>{const l={name,text,time:new Date(at||Date.now()).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})};logs.push(l);if(logs.length>1000)logs.shift();
   const f=$('#filter').value;if(!f||f===name){const L=$('#log'),stick=L.scrollHeight-L.scrollTop-L.clientHeight<60;L.append(lineEl(l));if(stick)L.scrollTop=L.scrollHeight}});
 api.on('msa',({name,uri,code})=>{const m=$('#msa');m.style.display='block';m.innerHTML='';
-  m.append('Microsoft sign-in opened in your browser ('+name+'). Code: ');const b=document.createElement('b');b.textContent=code;m.append(b,' (copied to your clipboard). If the page asks for it, paste it. ');
-  const a=document.createElement('a');a.textContent='Open the page again';a.onclick=()=>api.invoke('openLink',uri);m.append(a)});
+  m.append((api.isWeb?'Microsoft sign-in needed (':'Microsoft sign-in opened in your browser (')+name+'). Code: ');const b=document.createElement('b');b.textContent=code;m.append(b,api.isWeb?' - open the link, sign in, and enter the code if asked. ':' (copied to your clipboard). If the page asks for it, paste it. ');
+  const a=document.createElement('a');a.textContent=api.isWeb?'Open sign-in page':'Open the page again';a.onclick=()=>api.invoke('openLink',uri);m.append(a)});
 $('#filter').onchange=drawLog;$('#clearLog').onclick=()=>{logs=[];drawLog()};
 $('#btnConnect').onclick=async()=>{if(!cfg.accounts.some(a=>a.selected))return toast('Tick at least one account first.');const r=await api.invoke('connect');toast(r==='ok'?'Connecting accounts...':r)};
 $('#btnDisconnect').onclick=()=>{if(!cfg.accounts.some(a=>a.selected))return toast('Tick at least one account first.');api.invoke('disconnectSelected');toast('Disconnected selected accounts')};
 $('#all').onclick=async()=>{cfg.accounts=await api.invoke('selectAll',true);render()};$('#none').onclick=async()=>{cfg.accounts=await api.invoke('selectAll',false);render()};
 $('#btnSend').onclick=()=>{const v=$('#msg').value.trim();if(!v)return;api.invoke('say',v);$('#msg').value=''};
 $('#msg').onkeydown=e=>{if(e.key==='Enter')$('#btnSend').click()};
+api.on('cfgChanged',({key,val})=>{if(!cfg)return;const p=key.split('.');let o=cfg;while(p.length>1){const k=p.shift();o=o[k]=o[k]||{}}o[p[0]]=val;
+  $('[data-k]').forEach(el=>{if(el.dataset.k===key&&document.activeElement!==el){if(el.type==='checkbox')el.checked=!!val;else el.value=val??''}})});
+api.on('spamState',v=>{$('#spamOn').checked=!!v});api.invoke('spamState').then(v=>{$('#spamOn').checked=!!v});
+if(api.isWeb){const p=document.querySelector('[data-k="opt.privateSignin"]');if(p)p.closest('label').style.display='none';
+  const lo=document.createElement('a');lo.href='/logout';lo.textContent='Log out';lo.className='ver';lo.style.cssText='display:block;color:#8794a3';$('#ver').after(lo)}
 $('#spamOn').onchange=e=>{api.invoke('spam',e.target.checked);toast(e.target.checked?'Spam enabled':'Spam disabled')};
 $('#btnMs').onclick=async()=>{const b=$('#btnMs');b.disabled=true;b.textContent='Waiting for you to sign in...';
   const r=await api.invoke('addMicrosoft');b.disabled=false;b.textContent='Add Microsoft account';$('#msa').style.display='none';
