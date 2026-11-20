@@ -46,6 +46,24 @@ module.exports = function createCore(o) {
     return on.find(m => Array.isArray(cfg[m].ids) && cfg[m].ids.includes(acc.id))
       || on.find(m => cfg[m].ids == null && !Object.keys(MODES).some(o => Array.isArray(cfg[o].ids) && cfg[o].ids.includes(acc.id))) || null;
   };
+  // Turns a kick reason (plain text or Minecraft chat JSON) into readable text
+  const flat = c => { if (typeof c === 'string') { try { c = JSON.parse(c); } catch { return c; } if (typeof c === 'string') return c; }
+    return !c ? '' : (c.text || c.translate || '') + (Array.isArray(c.extra) ? c.extra.map(flat).join('') : ''); };
+  // Login pacing: servers limit how fast one IP can log in. When many alts drop at once (server restart),
+  // they'd all retry together, get refused, and keep colliding forever - so every login waits for its own slot.
+  let nextSlot = 0;
+  const gap = () => Math.max(5, Number(cfg.server.delay) || 0) * 1000;
+  function queueConnect(acc, delayMs) {
+    const s = sess(acc.id);
+    s.timers.push(setTimeout(() => {
+      if (!s.wanted || s.bot) return;
+      const now = Date.now(), wait = Math.max(0, nextSlot - now);
+      nextSlot = Math.max(now, nextSlot) + gap();
+      if (!wait) return connectAcc(acc);
+      if (wait > 3000) chatLine(acc.name, `Waiting ${Math.round(wait / 1000)}s for a login slot...`);
+      s.timers.push(setTimeout(() => connectAcc(acc), wait));
+    }, delayMs));
+  }
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const readJson = f => JSON.parse(fs.readFileSync(f, 'utf8'));
 
@@ -141,7 +159,7 @@ module.exports = function createCore(o) {
       if (ended) return; ended = true;
       if (s.bot !== bot) return; // this bot was already stopped or replaced - ignore its late events
       clear(s); s.bot = null; s.state = 'offline'; pushStatus();
-      chatLine(acc.name, why || 'Disconnected.');
+      chatLine(acc.name, why || 'Disconnected.'); log.info(acc.name + ': ' + (why || 'Disconnected.'));
       try { bot.removeAllListeners('message'); bot.end(); } catch {}
       retry(acc);
     };
@@ -149,7 +167,7 @@ module.exports = function createCore(o) {
     s.timers.push(setTimeout(() => { if (s.bot === bot && s.state === 'connecting' && !s.signin) finish('Connection timed out.'); }, 60000));
     bot.once('spawn', async () => {
       s.state = 'online'; s.retries = 0; pushStatus();
-      chatLine(acc.name, 'Spawned.');
+      chatLine(acc.name, 'Spawned.'); log.info(acc.name + ': online');
       try { bot.physicsEnabled = !!cfg.opt.physics; applyControls(bot); } catch {}
       const joins = cfg.join.text.split('\n').map(l => l.trim()).filter(Boolean);
       for (const m of joins) { await sleep(1500); if (s.bot === bot) safeChat(bot, m); }
@@ -157,9 +175,11 @@ module.exports = function createCore(o) {
     });
     s.mode = serverMode(acc, s, bot);
     bot.on('message', m => { try { chatLine(acc.name, m.toString()); } catch {} });
-    bot.on('kicked', r => chatLine(acc.name, 'Kicked: ' + (typeof r === 'string' ? r : JSON.stringify(r))));
-    bot.on('error', e => { if (ended) return; chatLine(acc.name, 'Error: ' + (e && e.message)); log.warn(acc.name, 'bot error:', e && e.message); if (s.state === 'connecting') finish('Disconnected.'); });
-    bot.on('end', () => finish());
+    bot.on('kicked', r => { const t = 'Kicked: ' + (flat(r) || JSON.stringify(r)); chatLine(acc.name, t); log.info(acc.name + ': ' + t); });
+    bot.on('error', e => { if (ended) return; chatLine(acc.name, 'Error: ' + (e && e.message)); log.warn(acc.name, 'bot error:', e && e.message); if (s.state === 'connecting') finish('Disconnected.');
+      // Safety net: a broken connection should always end the bot - if it hasn't within 15s, force a reconnect
+      else s.timers.push(setTimeout(() => { if (!ended && s.bot === bot) finish('Connection lost.'); }, 15000)); });
+    bot.on('end', r => finish(r && r !== 'socketClosed' ? 'Disconnected: ' + flat(r) : null));
   }
 
   const safeChat = (bot, text) => { try { bot.chat(text); } catch (e) { log.warn('chat failed:', e.message); } };
@@ -232,7 +252,7 @@ module.exports = function createCore(o) {
     const delay = Math.min(base * 2 ** Math.min(s.retries - 1, 6), Math.max(base, 60000)) + Math.random() * 1000;
     s.state = 'waiting'; pushStatus();
     chatLine(acc.name, `Reconnecting in ${Math.round(delay / 1000)}s...` + (s.retries > 1 ? ` (attempt ${s.retries})` : ''));
-    s.timers.push(setTimeout(() => connectAcc(acc), delay));
+    queueConnect(acc, delay);
   }
 
   function antiAfk(s, bot) {
@@ -265,7 +285,7 @@ module.exports = function createCore(o) {
     if (s.bot || s.wanted) return;
     s.wanted = true; s.idx = i; s.retries = 0;
     markRunning(a.id, true);
-    if (delayMs) s.timers.push(setTimeout(() => connectAcc(a), delayMs)); else connectAcc(a);
+    queueConnect(a, delayMs);
   }
   const onlineFor = ids => cfg.accounts.filter(a => (ids === null || ids === undefined || ids.includes(a.id)) && sess(a.id).state === 'online');
   const accounts = () => cfg.accounts;
