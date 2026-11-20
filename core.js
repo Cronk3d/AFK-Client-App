@@ -10,7 +10,10 @@ const defaults = {
   opt: { sneak: false, physics: true, antiAfk: true, reconnect: true, wipeOnExit: false, privateSignin: true },
   afk: { interval: 30, forward: false, head: true, swing: true, jump: true, chat: false, message: '' },
   reconnect: { delay: 5 },
-  warlock: { on: false, command: '/server warlock', delay: 3 },
+  // Server modes: alts in a mode send its command once every time they land in the hub.
+  // ids = which accounts use the mode (null = every account not picked for another mode).
+  warlock: { on: false, command: '/server warlock', delay: 3, ids: null },
+  creeper: { on: false, command: '/server creeper', delay: 3, ids: [] },
   join: { text: '' },
   spam: { text: '', delay: 480, ids: null },
   chat: { ids: null },
@@ -36,6 +39,13 @@ module.exports = function createCore(o) {
   const cfgFile = () => path.join(dataDir, 'config.json');
   const authDir = id => path.join(dataDir, 'auth', String(id));
   const wipeAuth = () => fs.rmSync(path.join(dataDir, 'auth'), { recursive: true, force: true });
+  const MODES = { warlock: 'Warlock', creeper: 'Creeper' };
+  // Which mode (if any) an account is in. A specific pick beats "all accounts".
+  const modeFor = acc => {
+    const on = Object.keys(MODES).filter(m => cfg[m].on);
+    return on.find(m => Array.isArray(cfg[m].ids) && cfg[m].ids.includes(acc.id))
+      || on.find(m => cfg[m].ids == null && !Object.keys(MODES).some(o => Array.isArray(cfg[o].ids) && cfg[o].ids.includes(acc.id))) || null;
+  };
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const readJson = f => JSON.parse(fs.readFileSync(f, 'utf8'));
 
@@ -145,7 +155,7 @@ module.exports = function createCore(o) {
       for (const m of joins) { await sleep(1500); if (s.bot === bot) safeChat(bot, m); }
       if (cfg.opt.antiAfk && s.bot === bot) antiAfk(s, bot);
     });
-    s.warlock = warlockMode(acc, s, bot);
+    s.mode = serverMode(acc, s, bot);
     bot.on('message', m => { try { chatLine(acc.name, m.toString()); } catch {} });
     bot.on('kicked', r => chatLine(acc.name, 'Kicked: ' + (typeof r === 'string' ? r : JSON.stringify(r))));
     bot.on('error', e => { if (ended) return; chatLine(acc.name, 'Error: ' + (e && e.message)); log.warn(acc.name, 'bot error:', e && e.message); if (s.state === 'connecting') finish('Disconnected.'); });
@@ -154,42 +164,47 @@ module.exports = function createCore(o) {
 
   const safeChat = (bot, text) => { try { bot.chat(text); } catch (e) { log.warn('chat failed:', e.message); } };
 
-  // ---------- Warlock mode ----------
-  // Every time an alt lands in the hub (first join, or sent back for any reason) it sends the command ONCE.
+  // ---------- Server modes (Warlock / Creeper) ----------
+  // Every time an alt lands in the hub (first join, or sent back for any reason) it sends its mode's command ONCE.
   // The proxy moving an alt between servers shows up as a "world change" (login/respawn packet), so:
-  //   hub -> we send the command -> next world change = arrived in warlock (don't send again)
-  //   in warlock -> unexpected world change = got sent to hub -> send the command once
-  // If the command doesn't move the alt (warlock restarting/full), it tries again every 45s until it does.
-  function warlockMode(acc, s, bot) {
-    let state = 'hub', sendTimer = null, retryTimer = null, lastChange = 0, died = false, spawned = false;
+  //   hub -> we send the command -> next world change = arrived (don't send again)
+  //   arrived -> unexpected world change = got sent to hub -> send the command once
+  // If the command doesn't move the alt (server restarting/full), it tries again every 45s until it does.
+  function serverMode(acc, s, bot) {
+    let state = 'hub', at = null, sentFor = null, sendTimer = null, retryTimer = null, lastChange = 0, died = false, spawned = false;
     const alive = () => s.bot === bot;
+    const label = m => MODES[m] + ' mode';
     const stopTimers = () => { clearTimeout(sendTimer); clearTimeout(retryTimer); sendTimer = retryTimer = null; };
     const send = () => {
       stopTimers();
-      if (!alive() || !cfg.warlock.on) return;
-      const cmd = (cfg.warlock.command || '/server warlock').trim();
+      const m = modeFor(acc);
+      if (!alive() || !m) return;
+      const cmd = (cfg[m].command || '/server ' + m).trim();
       safeChat(bot, cmd);
-      chatLine(acc.name, 'Warlock mode: sent ' + cmd);
-      state = 'expect';
+      chatLine(acc.name, label(m) + ': sent ' + cmd);
+      state = 'expect'; sentFor = m;
       retryTimer = setTimeout(() => {
-        if (alive() && state === 'expect') { chatLine(acc.name, 'Warlock mode: still not moved, trying again...'); send(); }
+        if (alive() && state === 'expect') { chatLine(acc.name, label(m) + ': still not moved, trying again...'); send(); }
       }, 45000);
       s.timers.push(retryTimer);
     };
     const queueSend = () => {
-      if (!cfg.warlock.on) return;
+      const m = modeFor(acc);
+      if (!m) return;
       clearTimeout(sendTimer);
-      sendTimer = setTimeout(send, Math.max(1, Number(cfg.warlock.delay) || 3) * 1000);
+      sendTimer = setTimeout(send, Math.max(1, Number(cfg[m].delay) || 3) * 1000);
       s.timers.push(sendTimer);
     };
+    const arrived = () => { stopTimers(); state = 'in'; at = sentFor; };
     const worldChanged = () => {
       if (!spawned) return;
       const now = Date.now();
       if (now - lastChange < 3000) return; // one server switch can send 2 packets
       lastChange = now;
-      if (state === 'expect') { stopTimers(); state = 'warlock'; chatLine(acc.name, 'Warlock mode: joined warlock.'); return; }
-      state = 'hub';
-      if (cfg.warlock.on) chatLine(acc.name, 'Warlock mode: sent to hub - rejoining warlock.');
+      if (state === 'expect') { arrived(); chatLine(acc.name, label(at) + ': joined ' + at + '.'); return; }
+      state = 'hub'; at = null;
+      const m = modeFor(acc);
+      if (m) chatLine(acc.name, label(m) + ': sent to hub - rejoining ' + m + '.');
       queueSend();
     };
     bot.once('spawn', () => { spawned = true; lastChange = Date.now(); state = 'hub'; queueSend(); });
@@ -197,15 +212,19 @@ module.exports = function createCore(o) {
     bot._client.on('login', worldChanged);
     bot._client.on('respawn', () => { if (died) { died = false; return; } worldChanged(); }); // dying also sends respawn - ignore it
     bot.on('messagestr', m => {
-      if (state === 'expect' && /already connected/i.test(m)) { stopTimers(); state = 'warlock'; }
+      if (state === 'expect' && /already connected/i.test(m)) arrived();
     });
-    // Turning the mode on while alts are already online: send once (harmless "already connected" if they're there)
-    return { enable: () => { if (spawned && alive() && state !== 'expect') { state = 'hub'; queueSend(); } } };
+    // Settings changed while online (mode switched on, or alt moved to another mode): send once if it's not where it should be
+    return { refresh: () => {
+      if (!spawned || !alive() || state === 'expect') return;
+      const m = modeFor(acc);
+      if (m && m !== at) { state = 'hub'; queueSend(); }
+    } };
   }
 
   function retry(acc) {
     const s = sess(acc.id);
-    if (!s.wanted || !(cfg.opt.reconnect || cfg.warlock.on)) { s.wanted = false; markRunning(acc.id, false); return; } // warlock mode always keeps alts online
+    if (!s.wanted || !(cfg.opt.reconnect || modeFor(acc))) { s.wanted = false; markRunning(acc.id, false); return; } // alts in a server mode always stay online
     if (!cfg.accounts.some(a => a.id === acc.id)) { s.wanted = false; return; } // account was removed
     s.retries++;
     // Back off when a server keeps refusing us: base, 2x, 4x... capped at 60 seconds, plus a little jitter
@@ -285,7 +304,7 @@ module.exports = function createCore(o) {
       while (parts.length > 1) { const p = parts.shift(); if (!obj[p] || typeof obj[p] !== 'object') obj[p] = {}; obj = obj[p]; }
       obj[parts[0]] = val; save();
       if (key.startsWith('move.') || key === 'opt.sneak') sessions.forEach(s => s.bot && applyControls(s.bot));
-      if (key === 'warlock.on' && val) sessions.forEach(s => s.bot && s.warlock && s.warlock.enable());
+      if (/^(warlock|creeper)\.(on|ids)$/.test(key)) sessions.forEach(s => s.bot && s.mode && s.mode.refresh());
       if (key === 'opt.physics') sessions.forEach(s => { if (s.bot) s.bot.physicsEnabled = !!val; });
       send('cfgChanged', { key, val });
     },
@@ -318,10 +337,10 @@ module.exports = function createCore(o) {
     selectAll: v => { cfg.accounts.forEach(a => a.selected = v); save(); return accounts(); },
     remove: id => {
       stopAcc(id); fs.rmSync(authDir(id), { recursive: true, force: true }); cfg.accounts = cfg.accounts.filter(a => a.id !== id); sessions.delete(id);
-      ['chat', 'spam'].forEach(k => { if (cfg[k].ids) cfg[k].ids = cfg[k].ids.filter(x => x !== id); }); save(); return accounts();
+      ['chat', 'spam', ...Object.keys(MODES)].forEach(k => { if (cfg[k].ids) cfg[k].ids = cfg[k].ids.filter(x => x !== id); }); save(); return accounts();
     },
     select: (id, v) => { const a = cfg.accounts.find(a => a.id === id); if (a) a.selected = v; save(); return accounts(); },
-    clear: () => { stopAll(); wipeAuth(); cfg.accounts = []; cfg.running = []; sessions.clear(); cfg.chat.ids = cfg.spam.ids = null; save(); return accounts(); },
+    clear: () => { stopAll(); wipeAuth(); cfg.accounts = []; cfg.running = []; sessions.clear(); cfg.chat.ids = cfg.spam.ids = cfg.warlock.ids = null; cfg.creeper.ids = []; save(); return accounts(); },
     clearCache: () => handlers.clear(),
     disconnectSelected: () => { cfg.accounts.filter(a => a.selected).forEach(a => stopAcc(a.id)); pushStatus(); },
     toggle: id => {
